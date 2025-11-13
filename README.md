@@ -67,6 +67,14 @@ The system is built using the Serverless Framework and consists of the following
    └─> Re-queues unsent messages
 ```
 
+### Architecture Diagram
+
+![Architecture Diagram](./docs/architecture-diagram.png)
+
+### Flow diagram
+
+![Flow Diagram](./docs/flow-diagram.png)
+
 ## Features
 
 - ✅ Send birthday messages at exactly 9am in user's local timezone
