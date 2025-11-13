@@ -1,0 +1,152 @@
+service: birthday-message-system
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ap-southeast-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+  environment:
+    DYNAMODB_TABLE: ${self:custom.tableName}
+    SQS_QUEUE_URL:
+      Ref: BirthdayMessagesQueue
+    HOOKBIN_URL: ${env:HOOKBIN_URL, ''}
+    RECOVERY_DAYS: ${env:RECOVERY_DAYS, '7'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.tableName}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.tableName}/index/*
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt:
+                - BirthdayMessagesQueue
+                - Arn
+            - Fn::GetAtt:
+                - BirthdayMessagesDLQ
+                - Arn
+
+custom:
+  tableName: ${self:service}-${self:provider.stage}-users
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+
+resources:
+  Resources:
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName}
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: birthdayMonthDay
+            AttributeType: S
+          - AttributeName: timezone
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: birthday-index
+            KeySchema:
+              - AttributeName: birthdayMonthDay
+                KeyType: HASH
+              - AttributeName: timezone
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+
+    BirthdayMessagesDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-birthday-messages-dlq
+        MessageRetentionPeriod: 1209600 # 14 days
+
+    BirthdayMessagesQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-birthday-messages-queue
+        VisibilityTimeout: 60
+        MessageRetentionPeriod: 1209600 # 14 days
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - BirthdayMessagesDLQ
+              - Arn
+          maxReceiveCount: 3
+
+functions:
+  createUser:
+    handler: src/handlers/user.createUser
+    events:
+      - http:
+          path: /user
+          method: post
+          cors: true
+
+  deleteUser:
+    handler: src/handlers/user.deleteUser
+    events:
+      - http:
+          path: /user/{userId}
+          method: delete
+          cors: true
+
+  updateUser:
+    handler: src/handlers/user.updateUser
+    events:
+      - http:
+          path: /user/{userId}
+          method: put
+          cors: true
+
+  scheduler:
+    handler: src/handlers/scheduler.scheduler
+    events:
+      - schedule:
+          rate: rate(1 hour)
+          enabled: true
+    timeout: 300 # 5 minutes for processing many users
+
+  sqsConsumer:
+    handler: src/handlers/sqs-consumer.sqsConsumer
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - BirthdayMessagesQueue
+              - Arn
+          batchSize: 10
+    timeout: 60
+
+  recovery:
+    handler: src/handlers/recovery.recovery
+    events:
+      - schedule:
+          rate: rate(1 day)
+          enabled: true
+          input:
+            source: aws.events
+    timeout: 600 # 10 minutes for recovery processing
+
