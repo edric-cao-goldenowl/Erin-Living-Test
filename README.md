@@ -6,6 +6,17 @@ A serverless application built with AWS Lambda, SQS, and DynamoDB that sends bir
 
 The system is built using the Serverless Framework and consists of the following components:
 
+## Tech Stack
+
+- AWS Lambda for compute
+- Amazon API Gateway for HTTP endpoints
+- Amazon DynamoDB for data persistence
+- Amazon EventBridge for scheduling
+- Amazon SQS for asynchronous messaging
+- TypeScript with AWS SDK v3
+- Serverless Framework for infrastructure as code
+- Jest for automated testing
+
 ### Components
 
 - **API Layer**: API Gateway + Lambda functions for user management (POST/DELETE/PUT /user)
@@ -433,7 +444,7 @@ The system is designed to handle thousands of birthday messages per day efficien
 | `SQS_QUEUE_URL`         | SQS queue URL                        | Auto-configured |
 | `HOOKBIN_URL`           | Webhook URL for sending messages     | Required        |
 | `RECOVERY_DAYS`         | Number of days to check for recovery | `7`             |
-| `TARGET_HOUR_BIRTHDAY`  | Number of days to check for recovery | `9`             |
+| `TARGET_HOUR_BIRTHDAY`  | Hour of day send birthday messages   | `9`             |
 
 ## Future Enhancements
 
