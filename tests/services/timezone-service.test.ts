@@ -5,8 +5,9 @@ describe('TimezoneService', () => {
     it('should convert date to UTC timestamp for default hour', () => {
       const dateString = '2024-01-15';
       const timezone = 'America/New_York';
+      const timezoneService = new TimezoneService();
 
-      const result = TimezoneService.getTargetHourInUTC(dateString, timezone, 9);
+      const result = timezoneService.getTargetHourInUTC(dateString, timezone, 9);
 
       expect(result).toBeInstanceOf(Date);
     });
@@ -14,8 +15,9 @@ describe('TimezoneService', () => {
     it('should convert date to UTC timestamp for custom hour', () => {
       const dateString = '2024-01-15';
       const timezone = 'America/New_York';
+      const timezoneService = new TimezoneService();
 
-      const result = TimezoneService.getTargetHourInUTC(dateString, timezone, 15);
+      const result = timezoneService.getTargetHourInUTC(dateString, timezone, 15);
 
       expect(result).toBeInstanceOf(Date);
     });
@@ -23,8 +25,9 @@ describe('TimezoneService', () => {
     it('should handle different timezones', () => {
       const dateString = '2024-01-15';
       const timezone = 'Asia/Ho_Chi_Minh';
+      const timezoneService = new TimezoneService();
 
-      const result = TimezoneService.getTargetHourInUTC(dateString, timezone, 9);
+      const result = timezoneService.getTargetHourInUTC(dateString, timezone, 9);
 
       expect(result).toBeInstanceOf(Date);
     });
@@ -32,7 +35,8 @@ describe('TimezoneService', () => {
 
   describe('calculateDelaySeconds', () => {
     it('should return non-negative delay', () => {
-      const result = TimezoneService.calculateDelaySeconds('2099-01-01', 'UTC');
+      const timezoneService = new TimezoneService();
+      const result = timezoneService.calculateDelaySeconds('2099-01-01', 'UTC');
 
       expect(result).toBeGreaterThanOrEqual(0);
     });
@@ -42,8 +46,9 @@ describe('TimezoneService', () => {
     it('should return true for same month/day in timezone', () => {
       const today = new Date();
       const dateString = today.toISOString().split('T')[0];
+      const timezoneService = new TimezoneService();
 
-      const result = TimezoneService.isToday(dateString, 'UTC');
+      const result = timezoneService.isToday(dateString, 'UTC');
 
       expect(result).toBe(true);
     });

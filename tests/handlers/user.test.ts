@@ -3,8 +3,19 @@ import { createUser, deleteUser, updateUser } from '../../src/handlers/user';
 import { UserService } from '../../src/services/user-service';
 
 jest.mock('../../src/services/user-service');
+jest.mock('../../src/services/timezone-service');
 
-const mockedUserService = UserService as jest.Mocked<typeof UserService>;
+// Mock UserService instance
+const mockUserServiceInstance = {
+  createUser: jest.fn(),
+  deleteUser: jest.fn(),
+  updateUser: jest.fn(),
+} as unknown as UserService;
+
+// Mock UserService constructor
+(UserService as jest.MockedClass<typeof UserService>).mockImplementation(() => {
+  return mockUserServiceInstance;
+});
 
 describe('User Handlers', () => {
   beforeEach(() => {
@@ -29,7 +40,7 @@ describe('User Handlers', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
 
-      mockedUserService.createUser.mockResolvedValue(mockUser);
+      (mockUserServiceInstance.createUser as jest.Mock).mockResolvedValue(mockUser);
 
       const event: Partial<APIGatewayProxyEvent> = {
         body: JSON.stringify({
@@ -130,7 +141,7 @@ describe('User Handlers', () => {
 
   describe('deleteUser', () => {
     it('should delete user successfully', async () => {
-      mockedUserService.deleteUser.mockResolvedValue(true);
+      (mockUserServiceInstance.deleteUser as jest.Mock).mockResolvedValue(true);
 
       const event: Partial<APIGatewayProxyEvent> = {
         pathParameters: {
@@ -144,7 +155,7 @@ describe('User Handlers', () => {
     });
 
     it('should return 404 if user not found', async () => {
-      mockedUserService.deleteUser.mockResolvedValue(false);
+      (mockUserServiceInstance.deleteUser as jest.Mock).mockResolvedValue(false);
 
       const event: Partial<APIGatewayProxyEvent> = {
         pathParameters: {
@@ -176,7 +187,7 @@ describe('User Handlers', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
 
-      mockedUserService.updateUser.mockResolvedValue(mockUser);
+      (mockUserServiceInstance.updateUser as jest.Mock).mockResolvedValue(mockUser);
 
       const event: Partial<APIGatewayProxyEvent> = {
         pathParameters: {
@@ -217,7 +228,7 @@ describe('User Handlers', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
 
-      mockedUserService.updateUser.mockResolvedValue(mockUser);
+      (mockUserServiceInstance.updateUser as jest.Mock).mockResolvedValue(mockUser);
 
       const event: Partial<APIGatewayProxyEvent> = {
         pathParameters: {
@@ -264,7 +275,7 @@ describe('User Handlers', () => {
     });
 
     it('should return 404 if user not found', async () => {
-      mockedUserService.updateUser.mockResolvedValue(null);
+      (mockUserServiceInstance.updateUser as jest.Mock).mockResolvedValue(null);
 
       const event: Partial<APIGatewayProxyEvent> = {
         pathParameters: {

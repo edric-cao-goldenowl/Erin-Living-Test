@@ -1,9 +1,11 @@
-import { MessageService } from '../../src/services/message-service';
-import { User } from '../../src/models/user';
-import axios from 'axios';
+import { MessageServiceFactory } from '../../src/services/messages/message-service-factory';
+import { MessageDeliveryService } from '../../src/services/messages/message-delivery-service';
+import { User } from '../../src/schemas/user';
 
-jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+// Mock MessageDeliveryService
+const mockDeliveryService: MessageDeliveryService = {
+  send: jest.fn().mockResolvedValue(undefined),
+};
 
 describe('MessageService', () => {
   const mockUser: User = {
@@ -24,55 +26,54 @@ describe('MessageService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.HOOKBIN_URL = 'https://hookbin.com/test-endpoint';
+    (mockDeliveryService.send as jest.Mock).mockResolvedValue(undefined);
   });
 
   describe('formatMessage', () => {
     it('should format message with full name', () => {
-      const result = MessageService.formatMessage(mockUser);
+      const messageServiceFactory = new MessageServiceFactory();
+      const messageService = messageServiceFactory.create('birthday');
+      const result = messageService.formatMessage(mockUser, 'birthday');
 
       expect(result).toBe("Hey, John Doe it's your birthday");
     });
   });
 
-  describe('sendBirthdayMessage', () => {
-    it('should send HTTP POST to hookbin.com', async () => {
-      mockedAxios.post.mockResolvedValueOnce({ status: 200 });
+  describe('sendMessage', () => {
+    it('should delegate to delivery service with formatted message', async () => {
+      const messageServiceFactory = new MessageServiceFactory(mockDeliveryService);
+      const messageService = messageServiceFactory.create('birthday');
+      await messageService.sendMessage(mockUser, 'birthday');
 
-      await MessageService.sendBirthdayMessage(mockUser);
-
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        'https://hookbin.com/test-endpoint',
-        expect.objectContaining({
-          message: "Hey, John Doe it's your birthday",
-        }),
-        expect.objectContaining({
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        })
+      expect(mockDeliveryService.send).toHaveBeenCalledWith(
+        mockUser,
+        "Hey, John Doe it's your birthday",
+        'birthday'
       );
     });
 
-    it('should throw error if HOOKBIN_URL is not set', async () => {
-      delete process.env.HOOKBIN_URL;
+    it('should propagate delivery service errors', async () => {
+      const error = new Error('Delivery failed');
+      (mockDeliveryService.send as jest.Mock).mockRejectedValueOnce(error);
 
-      await expect(MessageService.sendBirthdayMessage(mockUser)).rejects.toThrow(
-        'HOOKBIN_URL environment variable is not set'
+      const messageServiceFactory = new MessageServiceFactory(mockDeliveryService);
+      const messageService = messageServiceFactory.create('birthday');
+      await expect(messageService.sendMessage(mockUser, 'birthday')).rejects.toThrow(
+        'Delivery failed'
       );
     });
+  });
 
-    it('should throw error on HTTP failure', async () => {
-      mockedAxios.post.mockRejectedValueOnce(new Error('Network error'));
+  describe('sendEventMessage', () => {
+    it('should send event message using sendMessage', async () => {
+      const messageServiceFactory = new MessageServiceFactory(mockDeliveryService);
+      const messageService = messageServiceFactory.create('birthday');
+      await messageService.sendEventMessage(mockUser, 'birthday');
 
-      await expect(MessageService.sendBirthdayMessage(mockUser)).rejects.toThrow();
-    });
-
-    it('should throw error on non-2xx status code', async () => {
-      mockedAxios.post.mockResolvedValueOnce({ status: 500 });
-
-      await expect(MessageService.sendBirthdayMessage(mockUser)).rejects.toThrow(
-        'Unexpected status code: 500'
+      expect(mockDeliveryService.send).toHaveBeenCalledWith(
+        mockUser,
+        "Hey, John Doe it's your birthday",
+        'birthday'
       );
     });
   });

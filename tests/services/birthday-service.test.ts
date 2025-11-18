@@ -1,13 +1,21 @@
-import { BirthdayService } from '../../src/services/birthday-service';
+import { BirthdayService } from '../../src/services/events/birthday-service';
 import { UserService } from '../../src/services/user-service';
 import { TimezoneService } from '../../src/services/timezone-service';
-import { User } from '../../src/models/user';
+import { User } from '../../src/schemas/user';
 
 jest.mock('../../src/services/user-service');
 jest.mock('../../src/services/timezone-service');
 
-const mockedUserService = UserService as jest.Mocked<typeof UserService>;
-const mockedTimezoneService = TimezoneService as jest.Mocked<typeof TimezoneService>;
+// Mock service instances
+const mockTimezoneService = {
+  getCurrentTimeInTimezone: jest.fn(),
+  isToday: jest.fn(),
+  getTargetHourInUTC: jest.fn(),
+} as unknown as TimezoneService;
+
+const mockUserService = {
+  getUsersByBirthdayMonthDay: jest.fn(),
+} as unknown as UserService;
 
 describe('BirthdayService', () => {
   const mockUser: User = {
@@ -31,26 +39,28 @@ describe('BirthdayService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedTimezoneService.getCurrentTimeInTimezone.mockReturnValue(mockNowInTimezone as never);
+    (mockTimezoneService.getCurrentTimeInTimezone as jest.Mock).mockReturnValue(mockNowInTimezone);
   });
 
   describe('isBirthdayToday', () => {
     it('should return true if today is birthday', () => {
-      mockedTimezoneService.isToday.mockReturnValue(true);
+      (mockTimezoneService.isToday as jest.Mock).mockReturnValue(true);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = BirthdayService.isBirthdayToday(mockUser);
+      const result = birthdayService.isBirthdayToday(mockUser);
 
       expect(result).toBe(true);
-      expect(mockedTimezoneService.isToday).toHaveBeenCalledWith(
+      expect(mockTimezoneService.isToday).toHaveBeenCalledWith(
         mockUser.birthday,
         mockUser.timezone
       );
     });
 
     it('should return false if today is not birthday', () => {
-      mockedTimezoneService.isToday.mockReturnValue(false);
+      (mockTimezoneService.isToday as jest.Mock).mockReturnValue(false);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = BirthdayService.isBirthdayToday(mockUser);
+      const result = birthdayService.isBirthdayToday(mockUser);
 
       expect(result).toBe(false);
     });
@@ -59,28 +69,30 @@ describe('BirthdayService', () => {
   describe('calculateNextBirthdayDelivery', () => {
     it('should calculate UTC time for target hour on birthday', () => {
       const mockDate = new Date('2024-01-15T14:00:00Z');
-      mockedTimezoneService.getTargetHourInUTC.mockReturnValue(mockDate as never);
+      (mockTimezoneService.getTargetHourInUTC as jest.Mock).mockReturnValue(mockDate);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = BirthdayService.calculateNextBirthdayDelivery(mockUser);
+      const result = birthdayService.calculateNextBirthdayDelivery(mockUser);
 
       expect(result).toBe(mockDate);
-      expect(mockedTimezoneService.getTargetHourInUTC).toHaveBeenCalled();
+      expect(mockTimezoneService.getTargetHourInUTC).toHaveBeenCalled();
     });
   });
 
   describe('getUsersWithBirthdayToday', () => {
     it('should return users with birthdays today', async () => {
-      mockedUserService.getUsersByBirthdayMonthDay
+      (mockUserService.getUsersByBirthdayMonthDay as jest.Mock)
         .mockResolvedValueOnce([mockUser]) // today
         .mockResolvedValueOnce([]); // tomorrow
 
-      mockedTimezoneService.isToday.mockReturnValue(true);
+      (mockTimezoneService.isToday as jest.Mock).mockReturnValue(true);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = await BirthdayService.getUsersWithBirthdayToday();
+      const result = await birthdayService.getUsersWithBirthdayToday();
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual(mockUser);
-      expect(mockedUserService.getUsersByBirthdayMonthDay).toHaveBeenCalledTimes(2);
+      expect(mockUserService.getUsersByBirthdayMonthDay).toHaveBeenCalledTimes(2);
     });
 
     it('should query both today and tomorrow to cover UTC+14', async () => {
@@ -89,41 +101,44 @@ describe('BirthdayService', () => {
         userId: '456',
         birthday: '1990-01-16',
       };
-      mockedUserService.getUsersByBirthdayMonthDay
+      (mockUserService.getUsersByBirthdayMonthDay as jest.Mock)
         .mockResolvedValueOnce([mockUser]) // today
         .mockResolvedValueOnce([tomorrowUser]); // tomorrow
 
-      mockedTimezoneService.isToday
+      (mockTimezoneService.isToday as jest.Mock)
         .mockReturnValueOnce(true) // mockUser has birthday today
         .mockReturnValueOnce(false); // tomorrowUser doesn't have birthday today
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = await BirthdayService.getUsersWithBirthdayToday();
+      const result = await birthdayService.getUsersWithBirthdayToday();
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual(mockUser);
-      expect(mockedUserService.getUsersByBirthdayMonthDay).toHaveBeenCalledTimes(2);
+      expect(mockUserService.getUsersByBirthdayMonthDay).toHaveBeenCalledTimes(2);
     });
 
     it('should filter out users whose birthday is not today in their timezone', async () => {
-      mockedUserService.getUsersByBirthdayMonthDay
+      (mockUserService.getUsersByBirthdayMonthDay as jest.Mock)
         .mockResolvedValueOnce([mockUser]) // today
         .mockResolvedValueOnce([]); // tomorrow
 
-      mockedTimezoneService.isToday.mockReturnValue(false);
+      (mockTimezoneService.isToday as jest.Mock).mockReturnValue(false);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = await BirthdayService.getUsersWithBirthdayToday();
+      const result = await birthdayService.getUsersWithBirthdayToday();
 
       expect(result).toHaveLength(0);
     });
 
     it('should remove duplicates when same user appears in both queries', async () => {
-      mockedUserService.getUsersByBirthdayMonthDay
+      (mockUserService.getUsersByBirthdayMonthDay as jest.Mock)
         .mockResolvedValueOnce([mockUser]) // today
         .mockResolvedValueOnce([mockUser]); // tomorrow (same user)
 
-      mockedTimezoneService.isToday.mockReturnValue(true);
+      (mockTimezoneService.isToday as jest.Mock).mockReturnValue(true);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
 
-      const result = await BirthdayService.getUsersWithBirthdayToday();
+      const result = await birthdayService.getUsersWithBirthdayToday();
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual(mockUser);
@@ -135,7 +150,7 @@ describe('BirthdayService', () => {
       // Mock: 9am has already passed (targetUTC is in the past)
       const mockDate = new Date('2024-01-15T08:00:00Z'); // 8am UTC (past)
       const mockNow = new Date('2024-01-15T10:00:00Z'); // 10am UTC (now)
-      mockedTimezoneService.getTargetHourInUTC.mockReturnValue(mockDate as never);
+      (mockTimezoneService.getTargetHourInUTC as jest.Mock).mockReturnValue(mockDate);
 
       // Mock Date constructor to return fixed time
       const OriginalDate = Date;
@@ -150,7 +165,8 @@ describe('BirthdayService', () => {
       Object.assign(DateMock, OriginalDate);
       global.Date = DateMock;
 
-      const result = BirthdayService.calculateBirthdaySchedule(mockUser);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
+      const result = birthdayService.calculateBirthdaySchedule(mockUser);
 
       expect(result).not.toBeNull();
       if (result) {
@@ -166,7 +182,7 @@ describe('BirthdayService', () => {
       // Mock: 9am hasn't arrived yet (targetUTC is in the future)
       const mockDate = new Date('2024-01-15T15:00:00Z'); // 3pm UTC (future)
       const mockNow = new Date('2024-01-15T10:00:00Z'); // 10am UTC (now)
-      mockedTimezoneService.getTargetHourInUTC.mockReturnValue(mockDate as never);
+      (mockTimezoneService.getTargetHourInUTC as jest.Mock).mockReturnValue(mockDate);
 
       // Mock Date constructor to return fixed time
       const OriginalDate = Date;
@@ -181,7 +197,8 @@ describe('BirthdayService', () => {
       Object.assign(DateMock, OriginalDate);
       global.Date = DateMock;
 
-      const result = BirthdayService.calculateBirthdaySchedule(mockUser);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
+      const result = birthdayService.calculateBirthdaySchedule(mockUser);
 
       expect(result).toBeNull();
 
@@ -192,7 +209,7 @@ describe('BirthdayService', () => {
       // Mock: exactly at 9am
       const mockDate = new Date('2024-01-15T09:00:00Z'); // 9am UTC
       const mockNow = new Date('2024-01-15T09:00:00Z'); // 9am UTC (now)
-      mockedTimezoneService.getTargetHourInUTC.mockReturnValue(mockDate as never);
+      (mockTimezoneService.getTargetHourInUTC as jest.Mock).mockReturnValue(mockDate);
 
       // Mock Date constructor to return fixed time
       const OriginalDate = Date;
@@ -207,7 +224,8 @@ describe('BirthdayService', () => {
       Object.assign(DateMock, OriginalDate);
       global.Date = DateMock;
 
-      const result = BirthdayService.calculateBirthdaySchedule(mockUser);
+      const birthdayService = new BirthdayService(mockTimezoneService, mockUserService);
+      const result = birthdayService.calculateBirthdaySchedule(mockUser);
 
       expect(result).not.toBeNull();
       if (result) {

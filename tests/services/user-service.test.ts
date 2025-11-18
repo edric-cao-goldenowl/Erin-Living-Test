@@ -10,7 +10,11 @@ jest.mock('uuid', () => ({
 }));
 
 const mockedDynamoDB = dynamoDBClient as jest.Mocked<typeof dynamoDBClient>;
-const mockedTimezoneService = TimezoneService as jest.Mocked<typeof TimezoneService>;
+
+// Mock TimezoneService instance
+const mockTimezoneService = {
+  formatMonthDay: jest.fn(),
+} as unknown as TimezoneService;
 
 describe('UserService', () => {
   const mockUser = {
@@ -33,14 +37,15 @@ describe('UserService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.DYNAMODB_TABLE = 'test-table';
-    mockedTimezoneService.formatMonthDay.mockReturnValue('01-15');
+    (mockTimezoneService.formatMonthDay as jest.Mock).mockReturnValue('01-15');
   });
 
   describe('createUser', () => {
     it('should create a new user', async () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({});
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.createUser({
+      const result = await userService.createUser({
         firstName: 'John',
         lastName: 'Doe',
         birthday: '1990-01-15',
@@ -75,8 +80,9 @@ describe('UserService', () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({
         Item: mockUser,
       });
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.getUserById('test-uuid-123');
+      const result = await userService.getUserById('test-uuid-123');
 
       expect(result).toEqual(mockUser);
       expect(mockedDynamoDB.send).toHaveBeenCalledWith(expect.any(GetCommand));
@@ -84,8 +90,9 @@ describe('UserService', () => {
 
     it('should return null if user not found', async () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({});
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.getUserById('non-existent');
+      const result = await userService.getUserById('non-existent');
 
       expect(result).toBeNull();
     });
@@ -98,8 +105,9 @@ describe('UserService', () => {
         .mockResolvedValueOnce({
           Attributes: { ...mockUser, firstName: 'Jane' },
         }); // UpdateCommand call
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.updateUser('test-uuid-123', {
+      const result = await userService.updateUser('test-uuid-123', {
         firstName: 'Jane',
       });
 
@@ -119,8 +127,9 @@ describe('UserService', () => {
         .mockResolvedValueOnce({
           Attributes: { ...mockUser, location: newLocation },
         }); // UpdateCommand call
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.updateUser('test-uuid-123', {
+      const result = await userService.updateUser('test-uuid-123', {
         location: newLocation,
       });
 
@@ -130,8 +139,9 @@ describe('UserService', () => {
 
     it('should return null if user not found', async () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({}); // getUserById returns null
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.updateUser('non-existent', {
+      const result = await userService.updateUser('non-existent', {
         firstName: 'Jane',
       });
 
@@ -144,8 +154,9 @@ describe('UserService', () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({
         Attributes: mockUser,
       });
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.deleteUser('test-uuid-123');
+      const result = await userService.deleteUser('test-uuid-123');
 
       expect(result).toBe(true);
       expect(mockedDynamoDB.send).toHaveBeenCalledWith(expect.any(DeleteCommand));
@@ -153,8 +164,9 @@ describe('UserService', () => {
 
     it('should return false if user not found', async () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({});
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.deleteUser('non-existent');
+      const result = await userService.deleteUser('non-existent');
 
       expect(result).toBe(false);
     });
@@ -165,8 +177,9 @@ describe('UserService', () => {
       (mockedDynamoDB.send as jest.Mock).mockResolvedValueOnce({
         Items: [mockUser],
       });
+      const userService = new UserService(mockTimezoneService);
 
-      const result = await UserService.getUsersByBirthdayMonthDay('01-15');
+      const result = await userService.getUsersByBirthdayMonthDay('01-15');
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual(mockUser);
