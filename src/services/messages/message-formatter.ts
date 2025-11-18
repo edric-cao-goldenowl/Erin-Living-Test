@@ -1,4 +1,4 @@
-import { User } from '../models/user';
+import { User } from '../../schemas/user';
 
 /**
  * Interface for message formatters (Birthday, Anniversary, etc.)

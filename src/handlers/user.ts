@@ -1,11 +1,12 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { UserService } from '../services/user-service';
+import { TimezoneService } from '../services/timezone-service';
 import {
   CreateUserRequest,
   UpdateUserRequest,
   CreateUserRequestSchema,
   UpdateUserRequestSchema,
-} from '../models/user';
+} from '../schemas/user';
 import { ZodError } from 'zod';
 
 const createResponse = (
@@ -50,7 +51,9 @@ export const createUser = async (event: APIGatewayProxyEvent): Promise<APIGatewa
     }
 
     const request: CreateUserRequest = validationResult.data;
-    const user = await UserService.createUser(request);
+    const timezoneService = new TimezoneService();
+    const userService = new UserService(timezoneService);
+    const user = await userService.createUser(request);
 
     return createResponse(201, {
       userId: user.userId,
@@ -89,7 +92,9 @@ export const deleteUser = async (event: APIGatewayProxyEvent): Promise<APIGatewa
       return createResponse(400, { error: 'userId is required' });
     }
 
-    const deleted = await UserService.deleteUser(userId);
+    const timezoneService = new TimezoneService();
+    const userService = new UserService(timezoneService);
+    const deleted = await userService.deleteUser(userId);
 
     if (!deleted) {
       return createResponse(404, { error: 'User not found' });
@@ -138,7 +143,9 @@ export const updateUser = async (event: APIGatewayProxyEvent): Promise<APIGatewa
     }
 
     const request: UpdateUserRequest = validationResult.data;
-    const user = await UserService.updateUser(userId, request);
+    const timezoneService = new TimezoneService();
+    const userService = new UserService(timezoneService);
+    const user = await userService.updateUser(userId, request);
 
     if (!user) {
       return createResponse(404, { error: 'User not found' });

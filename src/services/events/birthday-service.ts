@@ -1,6 +1,6 @@
-import { UserService } from './user-service';
-import { TimezoneService } from './timezone-service';
-import { User } from '../models/user';
+import { UserService } from '../user-service';
+import { TimezoneService } from '../timezone-service';
+import { User } from '../../schemas/user';
 import { format, addDays } from 'date-fns';
 import { EventService, EventSchedule } from './event-service';
 
@@ -13,14 +13,10 @@ export interface BirthdaySchedule extends EventSchedule {
 const TARGET_HOUR = Number(process.env.TARGET_HOUR_BIRTHDAY) || 9;
 
 export class BirthdayService implements EventService {
-  private static instance: BirthdayService;
-
-  static getInstance(): BirthdayService {
-    if (!BirthdayService.instance) {
-      BirthdayService.instance = new BirthdayService();
-    }
-    return BirthdayService.instance;
-  }
+  constructor(
+    private timezoneService: TimezoneService,
+    private userService: UserService
+  ) {}
   /**
    * Get the event type identifier
    */
@@ -39,26 +35,26 @@ export class BirthdayService implements EventService {
    * Check if today is user's birthday in their timezone
    */
   isEventToday(user: User): boolean {
-    return TimezoneService.isToday(user.birthday, user.timezone);
+    return this.timezoneService.isToday(user.birthday, user.timezone);
   }
 
   /**
    * Check if today is user's birthday in their timezone (legacy method for backward compatibility)
    */
-  static isBirthdayToday(user: User): boolean {
-    return TimezoneService.isToday(user.birthday, user.timezone);
+  isBirthdayToday(user: User): boolean {
+    return this.timezoneService.isToday(user.birthday, user.timezone);
   }
 
   /**
    * Calculate UTC timestamp for delivery time at the configured target hour today in user's timezone
    * Only calculates for today's birthday, not future birthdays
    */
-  static calculateNextBirthdayDelivery(user: User): Date {
+  calculateNextBirthdayDelivery(user: User): Date {
     const now = new Date();
     const todayString = format(now, 'yyyy-MM-dd');
 
     // Calculate target hour today in user's timezone, converted to UTC
-    return TimezoneService.getTargetHourInUTC(todayString, user.timezone, TARGET_HOUR);
+    return this.timezoneService.getTargetHourInUTC(todayString, user.timezone, TARGET_HOUR);
   }
 
   /**
@@ -67,15 +63,6 @@ export class BirthdayService implements EventService {
    * Excludes users who already received birthday message for today
    */
   async getUsersWithEventToday(): Promise<User[]> {
-    return BirthdayService.getUsersWithBirthdayToday();
-  }
-
-  /**
-   * Get all users with birthdays today (legacy static method for backward compatibility)
-   * Query 2 days (today and tomorrow) to cover UTC+14 timezone
-   * Excludes users who already received birthday message for today
-   */
-  static async getUsersWithBirthdayToday(): Promise<User[]> {
     const now = new Date();
     const today = format(now, 'MM-dd');
     const tomorrow = format(addDays(now, 1), 'MM-dd');
@@ -86,8 +73,8 @@ export class BirthdayService implements EventService {
     // Query both today and tomorrow to cover UTC+14 timezone
     // Exclude users who already received message for this birthday date THIS YEAR (filtered in DynamoDB)
     const [usersToday, usersTomorrow] = await Promise.all([
-      UserService.getUsersByBirthdayMonthDay(today, todayFullDate, currentYearPrefix),
-      UserService.getUsersByBirthdayMonthDay(tomorrow, tomorrowFullDate, currentYearPrefix),
+      this.userService.getUsersByBirthdayMonthDay(today, todayFullDate, currentYearPrefix),
+      this.userService.getUsersByBirthdayMonthDay(tomorrow, tomorrowFullDate, currentYearPrefix),
     ]);
 
     // Merge and remove duplicates
@@ -101,7 +88,16 @@ export class BirthdayService implements EventService {
     });
 
     // Filter: only users who actually have birthday today in their timezone
-    return Array.from(uniqueUsers.values()).filter((user) => BirthdayService.isBirthdayToday(user));
+    return Array.from(uniqueUsers.values()).filter((user) => this.isBirthdayToday(user));
+  }
+
+  /**
+   * Get all users with birthdays today (legacy method for backward compatibility)
+   * Query 2 days (today and tomorrow) to cover UTC+14 timezone
+   * Excludes users who already received birthday message for today
+   */
+  async getUsersWithBirthdayToday(): Promise<User[]> {
+    return this.getUsersWithEventToday();
   }
 
   /**
@@ -111,16 +107,6 @@ export class BirthdayService implements EventService {
    * Since scheduler runs hourly, we just check if the target hour has passed
    */
   calculateSchedule(user: User): EventSchedule | null {
-    return BirthdayService.calculateBirthdaySchedule(user);
-  }
-
-  /**
-   * Calculate schedule for birthday message delivery (legacy static method for backward compatibility)
-   * Returns null if the configured target hour hasn't arrived yet (scheduler will check again next hour)
-   * Returns schedule if the target hour has arrived (send immediately)
-   * Since scheduler runs hourly, we just check if the target hour has passed
-   */
-  static calculateBirthdaySchedule(user: User): BirthdaySchedule | null {
     const targetUTC = this.calculateNextBirthdayDelivery(user);
     const now = new Date();
     // If the target hour hasn't arrived yet, return null (scheduler will check again next hour)
@@ -137,22 +123,25 @@ export class BirthdayService implements EventService {
   }
 
   /**
-   * Get users with birthdays in a date range (for recovery)
+   * Calculate schedule for birthday message delivery (legacy method for backward compatibility)
+   * Returns null if the configured target hour hasn't arrived yet (scheduler will check again next hour)
+   * Returns schedule if the target hour has arrived (send immediately)
+   * Since scheduler runs hourly, we just check if the target hour has passed
    */
-  async getUsersWithEventInRange(startDate: Date, endDate: Date): Promise<User[]> {
-    return BirthdayService.getUsersWithBirthdayInRange(startDate, endDate);
+  calculateBirthdaySchedule(user: User): BirthdaySchedule | null {
+    return this.calculateSchedule(user) as BirthdaySchedule | null;
   }
 
   /**
-   * Get users with birthdays in a date range (for recovery) - legacy static method for backward compatibility
+   * Get users with birthdays in a date range (for recovery)
    */
-  static async getUsersWithBirthdayInRange(startDate: Date, endDate: Date): Promise<User[]> {
+  async getUsersWithEventInRange(startDate: Date, endDate: Date): Promise<User[]> {
     const allUsers: User[] = [];
 
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
       const monthDay = format(currentDate, 'MM-dd');
-      const users = await UserService.getUsersByBirthdayMonthDay(monthDay);
+      const users = await this.userService.getUsersByBirthdayMonthDay(monthDay);
       allUsers.push(...users);
       currentDate.setDate(currentDate.getDate() + 1);
     }
@@ -165,5 +154,12 @@ export class BirthdayService implements EventService {
     });
 
     return Array.from(uniqueUsers.values());
+  }
+
+  /**
+   * Get users with birthdays in a date range (for recovery) - legacy method for backward compatibility
+   */
+  async getUsersWithBirthdayInRange(startDate: Date, endDate: Date): Promise<User[]> {
+    return this.getUsersWithEventInRange(startDate, endDate);
   }
 }

@@ -2,7 +2,7 @@
   "Records": [
     {
       "messageId": "1",
-      "body": "{\"userId\":\"58718dd9-e5ec-48bb-8b78-733c0ec4bf98\", \"name\":\"Edric\", \"birthday\":\"2025-11-13\"}"
+      "body": "{\"userId\":\"ea993017-c67a-4d68-abf1-fbe04493ee61\", \"firstName\":\"Edric\", \"lastName\":\"Cao\", \"eventType\":\"birthday\", \"eventDate\":\"2025-11-13\", \"timezone\":\"Australia/Melbourne\", \"targetUTC\":\"2025-11-13T00:00:00Z\"}"
     }
   ]
 }

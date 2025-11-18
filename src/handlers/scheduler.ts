@@ -1,9 +1,11 @@
 import { EventBridgeEvent } from 'aws-lambda';
-import { BirthdayService } from '../services/birthday-service';
-import { EventService, EventSchedule } from '../services/event-service';
+import { BirthdayService } from '../services/events/birthday-service';
+import { UserService } from '../services/user-service';
+import { TimezoneService } from '../services/timezone-service';
+import { EventService, EventSchedule } from '../services/events/event-service';
 import { SendMessageBatchCommand, SendMessageBatchRequestEntry } from '@aws-sdk/client-sqs';
 import { sqsClient } from '../utils/sqs';
-import { User } from '../models/user';
+import { User } from '../schemas/user';
 
 const QUEUE_URL = process.env.SQS_QUEUE_URL || '';
 const SQS_BATCH_SIZE = 10; // SQS limit for batch operations
@@ -43,7 +45,6 @@ function createSQSMessageEntry(
   return {
     Id: `${user.userId}-${index}`,
     MessageBody: JSON.stringify(messageBody),
-    // No DelaySeconds - scheduler runs hourly, so messages are queued when the target hour arrives
   };
 }
 
@@ -66,7 +67,6 @@ async function processBatch(
       const user = users[i];
       const schedule = eventService.calculateSchedule(user);
 
-      // Only queue if schedule is not null (configured target hour has arrived)
       if (schedule === null) {
         console.log(
           `Skipping user ${user.userId} - configured target hour hasn't arrived yet in their timezone`
@@ -157,14 +157,16 @@ async function scheduleEvents(eventService: EventService): Promise<void> {
 }
 
 /**
- * Birthday scheduler (convenience function for backward compatibility)
+ * Birthday scheduler
  */
 export const scheduler = async (
   _event: EventBridgeEvent<'Scheduled Event', unknown>
 ): Promise<void> => {
   try {
     console.log('Scheduler triggered at:', new Date().toISOString());
-    const birthdayService = BirthdayService.getInstance();
+    const timezoneService = new TimezoneService();
+    const userService = new UserService(timezoneService);
+    const birthdayService = new BirthdayService(timezoneService, userService);
     await scheduleEvents(birthdayService);
   } catch (error) {
     console.error('Scheduler error:', error);

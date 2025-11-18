@@ -1,4 +1,4 @@
-import { User } from '../models/user';
+import { User } from '../../schemas/user';
 
 /**
  * Schedule for event message delivery

@@ -1,9 +1,11 @@
 import { SQSEvent, SQSRecord } from 'aws-lambda';
-import { MessageService } from '../services/message-service';
+import { MessageServiceFactory } from '../services/messages/message-service-factory';
+import { HookbinDeliveryService } from '../services/messages/deliveries/hookbin-delivery-service';
 import { UserService } from '../services/user-service';
-import { MessageFormatter } from '../services/message-formatter';
-import { UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { TimezoneService } from '../services/timezone-service';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { dynamoDBClient } from '../utils/dynamodb';
+import { wasMessageSent, getMessageStatusFields } from '../utils/message-status';
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE || '';
 
@@ -17,68 +19,6 @@ interface EventMessage {
   targetUTC: string;
 }
 
-// Legacy interface for backward compatibility
-interface BirthdayMessage {
-  userId: string;
-  firstName: string;
-  lastName: string;
-  birthday?: string; // Optional for backward compatibility
-  eventType?: string;
-  eventDate?: string;
-  timezone: string;
-  targetUTC: string;
-}
-
-/**
- * Check if message was already sent for this event
- */
-async function wasMessageAlreadySent(
-  userId: string,
-  eventDate: string,
-  eventType: string
-): Promise<boolean> {
-  try {
-    // For now, we use lastBirthdayMessageDate for all event types
-    // In the future, we could have separate fields per event type
-    const dateField =
-      eventType === 'birthday' ? 'lastBirthdayMessageDate' : 'lastBirthdayMessageDate';
-    const sentField =
-      eventType === 'birthday' ? 'lastBirthdayMessageSent' : 'lastBirthdayMessageSent';
-
-    const result = await dynamoDBClient.send(
-      new GetCommand({
-        TableName: TABLE_NAME,
-        Key: { userId },
-        ProjectionExpression: `${dateField}, ${sentField}`,
-      })
-    );
-
-    if (!result.Item) {
-      return false;
-    }
-
-    const item = result.Item as {
-      [key: string]: string | undefined;
-    };
-
-    // Check if message was already sent for this event
-    // If date field matches and sent field exists and is from current year
-    if (item[dateField] === eventDate && item[sentField]) {
-      const currentYear = new Date().getFullYear();
-      const sentYear = new Date(item[sentField] as string).getFullYear();
-      if (sentYear === currentYear) {
-        return true; // Already sent this year
-      }
-    }
-
-    return false;
-  } catch (error) {
-    console.error(`Error checking message status for user ${userId}:`, error);
-    // If we can't check, assume not sent to be safe
-    return false;
-  }
-}
-
 /**
  * Mark message as sent in DynamoDB after successful send
  * Uses conditional write to prevent race conditions
@@ -90,13 +30,7 @@ async function markMessageAsSent(
 ): Promise<boolean> {
   try {
     const now = new Date().toISOString();
-
-    // For now, we use lastBirthdayMessageDate for all event types
-    // In the future, we could have separate fields per event type
-    const dateField =
-      eventType === 'birthday' ? 'lastBirthdayMessageDate' : 'lastBirthdayMessageDate';
-    const sentField =
-      eventType === 'birthday' ? 'lastBirthdayMessageSent' : 'lastBirthdayMessageSent';
+    const { dateField, sentField } = getMessageStatusFields(eventType);
 
     await dynamoDBClient.send(
       new UpdateCommand({
@@ -128,34 +62,27 @@ async function markMessageAsSent(
  */
 async function processEventMessage(
   message: EventMessage,
-  formatter: MessageFormatter
+  userService: UserService,
+  messageServiceFactory: MessageServiceFactory
 ): Promise<void> {
-  // Get user to ensure they still exist
-  const user = await UserService.getUserById(message.userId);
+  const user = await userService.getUserById(message.userId);
   if (!user) {
     console.log(`User ${message.userId} not found, skipping message`);
     return;
   }
 
-  // Check if message was already sent (early exit to avoid unnecessary API calls)
-  const alreadySent = await wasMessageAlreadySent(
-    user.userId,
-    message.eventDate,
-    message.eventType
-  );
+  const alreadySent = await wasMessageSent(user.userId, message.eventDate, message.eventType);
   if (alreadySent) {
     console.log(`Message already sent for user ${user.userId}, skipping`);
     return;
   }
 
-  // Send message first
-  await MessageService.sendMessage(user, message.eventType, formatter);
+  const messageService = messageServiceFactory.create(message.eventType);
+  await messageService.sendMessage(user, message.eventType);
   console.log(`Successfully sent ${message.eventType} message to user ${user.userId}`);
 
-  // Only update database after successful send
   const wasMarked = await markMessageAsSent(user.userId, message.eventDate, message.eventType);
   if (!wasMarked) {
-    // Another process already marked it, but message was sent successfully
     console.log(`Message sent but already marked by another process for user ${user.userId}`);
   }
 }
@@ -163,66 +90,53 @@ async function processEventMessage(
 /**
  * Process a single SQS record
  */
-async function processRecord(record: SQSRecord): Promise<void> {
+async function processRecord(
+  record: SQSRecord,
+  userService: UserService,
+  messageServiceFactory: MessageServiceFactory
+): Promise<void> {
   try {
-    const rawMessage: BirthdayMessage | EventMessage = JSON.parse(record.body);
+    const rawMessage: unknown = JSON.parse(record.body);
 
-    // Handle legacy messages (backward compatibility)
-    if ('birthday' in rawMessage && !rawMessage.eventType) {
-      const legacyMessage: BirthdayMessage = rawMessage as BirthdayMessage;
-      const eventMessage: EventMessage = {
-        userId: legacyMessage.userId,
-        firstName: legacyMessage.firstName,
-        lastName: legacyMessage.lastName,
-        eventType: 'birthday',
-        eventDate: legacyMessage.birthday || '',
-        timezone: legacyMessage.timezone,
-        targetUTC: legacyMessage.targetUTC,
-      };
-      const formatter = await getMessageFormatter('birthday');
-      await processEventMessage(eventMessage, formatter);
-      return;
+    // Validate message structure
+    if (
+      !rawMessage ||
+      typeof rawMessage !== 'object' ||
+      !('eventType' in rawMessage) ||
+      typeof (rawMessage as { eventType: unknown }).eventType !== 'string'
+    ) {
+      throw new Error('Invalid message format: eventType is required');
     }
 
-    // Handle new event messages
     const message = rawMessage as EventMessage;
+
+    // Validate required fields
+    if (!message.userId || !message.eventDate || !message.timezone) {
+      throw new Error('Invalid message format: missing required fields');
+    }
+
     console.log(`Processing ${message.eventType} message:`, message);
-    const formatter = await getMessageFormatter(message.eventType);
-    await processEventMessage(message, formatter);
+    await processEventMessage(message, userService, messageServiceFactory);
   } catch (error) {
     console.error('Error processing SQS record:', error);
-    // Re-throw to trigger DLQ - message was not sent successfully, so don't update DB
     throw error;
-  }
-}
-
-/**
- * Get message formatter for event type
- */
-async function getMessageFormatter(eventType: string): Promise<MessageFormatter> {
-  // Import dynamically to avoid circular dependencies
-  const { BirthdayMessageFormatter } = await import('../services/message-formatter');
-
-  switch (eventType) {
-    case 'birthday':
-      return new BirthdayMessageFormatter();
-    // Future: case 'anniversary': return new AnniversaryMessageFormatter();
-    default:
-      // Default to birthday formatter for unknown types
-      return new BirthdayMessageFormatter();
   }
 }
 
 export const sqsConsumer = async (event: SQSEvent): Promise<void> => {
   console.log(`Received ${event.Records.length} SQS records`);
 
+  const timezoneService = new TimezoneService();
+  const userService = new UserService(timezoneService);
+  const deliveryService = new HookbinDeliveryService();
+  const messageServiceFactory = new MessageServiceFactory(deliveryService);
+
   const errors: Error[] = [];
 
-  // Process records in parallel (with error handling)
   await Promise.allSettled(
     event.Records.map(async (record) => {
       try {
-        await processRecord(record);
+        await processRecord(record, userService, messageServiceFactory);
       } catch (error) {
         console.error('Failed to process record:', record.messageId, error);
         errors.push(error instanceof Error ? error : new Error(String(error)));
@@ -230,7 +144,6 @@ export const sqsConsumer = async (event: SQSEvent): Promise<void> => {
     })
   );
 
-  // If any errors occurred, throw to trigger DLQ
   if (errors.length > 0) {
     throw new Error(`Failed to process ${errors.length} records`);
   }

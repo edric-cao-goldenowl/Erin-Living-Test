@@ -6,20 +6,22 @@ import {
   DeleteCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { User, CreateUserRequest, UpdateUserRequest } from '../models/user';
+import { User, CreateUserRequest, UpdateUserRequest } from '../schemas/user';
 import { v4 as uuidv4 } from 'uuid';
 import { TimezoneService } from './timezone-service';
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE || '';
 
 export class UserService {
+  constructor(private timezoneService: TimezoneService) {}
+
   /**
    * Create a new user
    */
-  static async createUser(request: CreateUserRequest): Promise<User> {
+  async createUser(request: CreateUserRequest): Promise<User> {
     const userId = uuidv4();
     const now = new Date().toISOString();
-    const birthdayMonthDay = TimezoneService.formatMonthDay(request.birthday);
+    const birthdayMonthDay = this.timezoneService.formatMonthDay(request.birthday);
 
     const user: User = {
       userId,
@@ -46,7 +48,7 @@ export class UserService {
   /**
    * Get user by ID
    */
-  static async getUserById(userId: string): Promise<User | null> {
+  async getUserById(userId: string): Promise<User | null> {
     const result = await dynamoDBClient.send(
       new GetCommand({
         TableName: TABLE_NAME,
@@ -60,7 +62,7 @@ export class UserService {
   /**
    * Update user
    */
-  static async updateUser(userId: string, request: UpdateUserRequest): Promise<User | null> {
+  async updateUser(userId: string, request: UpdateUserRequest): Promise<User | null> {
     const existingUser = await this.getUserById(userId);
     if (!existingUser) {
       return null;
@@ -88,7 +90,7 @@ export class UserService {
       expressionAttributeNames['#birthday'] = 'birthday';
       expressionAttributeNames['#birthdayMonthDay'] = 'birthdayMonthDay';
       expressionAttributeValues[':birthday'] = request.birthday;
-      expressionAttributeValues[':birthdayMonthDay'] = TimezoneService.formatMonthDay(
+      expressionAttributeValues[':birthdayMonthDay'] = this.timezoneService.formatMonthDay(
         request.birthday
       );
     }
@@ -126,7 +128,7 @@ export class UserService {
   /**
    * Delete user
    */
-  static async deleteUser(userId: string): Promise<boolean> {
+  async deleteUser(userId: string): Promise<boolean> {
     const result = await dynamoDBClient.send(
       new DeleteCommand({
         TableName: TABLE_NAME,
@@ -144,7 +146,7 @@ export class UserService {
    * @param excludeSentBirthdayDate - Optional: Exclude users who already received message for this birthday date (YYYY-MM-DD)
    * @param currentYearPrefix - Optional: Year prefix (e.g., "2024-") to check if lastBirthdayMessageSent is from current year
    */
-  static async getUsersByBirthdayMonthDay(
+  async getUsersByBirthdayMonthDay(
     monthDay: string,
     excludeSentBirthdayDate?: string,
     currentYearPrefix?: string
